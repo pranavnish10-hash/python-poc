@@ -1,46 +1,75 @@
-def add(x, y):
-    return x + y
+from dataclasses import dataclass
+from langgraph.graph import StateGraph, START, END
+from langchain.chains import LLMChain
+from langchain.memory import ConversationBufferMemory
+from langchain_core.prompts import (
+    HumanMessagePromptTemplate,
+    ChatPromptTemplate,
+    MessagesPlaceholder,
+    SystemMessagePromptTemplate,
+)
+from langchain_community.llms import Ollama
 
-def subtract(x, y):
-    return x - y
+# --- Persistent objects for memory and model ---
+llm = Ollama(model="gemma3:1b")
+memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
 
-def multiply(x, y):
-    return x * y
+prompt = ChatPromptTemplate(
+    messages=[
+        SystemMessagePromptTemplate.from_template(
+            "You are a helpful assistant. Respond directly to the user's question without prefixing your answer with 'AI:' or similar."
+        ),
+        MessagesPlaceholder(variable_name="chat_history"),
+        HumanMessagePromptTemplate.from_template("{query}")
+    ]
+)
 
-def divide(x, y):
-    if y == 0:
-        return "Error: Division by zero"
-    return x / y
+conversation_chain = LLMChain(
+    llm=llm,
+    prompt=prompt,
+    memory=memory
+)
 
-def calculator():
-    print("Select operation:")
-    print("1. Add")
-    print("2. Subtract")
-    print("3. Multiply")
-    print("4. Divide")
-    print("")
+# --- Graph state ---
+@dataclass
+class GraphState:
+    user_input: str = ""
+    llm_output: str = ""
+    final_output: str = ""
 
-    choice = input("Enter choice (1/2/3/4): ")
+# --- Node 1: LLM response ---
+def node1(state: GraphState):
+    output = conversation_chain.invoke({"query": state.user_input})
+    answer = output["text"].lstrip()
+    if answer.lower().startswith("ai:"):
+        answer = answer[3:].lstrip()
+    state.llm_output = answer
+    return state
 
-    if choice not in ('1', '2', '3', '4'):
-        print("Invalid input")
-        return
+# --- Node 2: Post-process output ---
+def node2(state: GraphState):
+    # For now, just copy the LLM output
+    state.final_output = state.llm_output
+    return state
 
-    try:
-        num1 = float(input("Enter first number: "))
-        num2 = float(input("Enter second number: "))
-    except ValueError:
-        print("Invalid number")
-        return
+# --- Build the graph ---
+graph = StateGraph(GraphState)
+graph.add_node("node1", node1)
+graph.add_node("node2", node2)
+graph.add_edge(START, "node1")
+graph.add_edge("node1", "node2")
+graph.add_edge("node2", END)
+graph = graph.compile()
 
-    if choice == '1':
-        print("Result:", add(num1, num2))
-    elif choice == '2':
-        print("Result:", subtract(num1, num2))
-    elif choice == '3':
-        print("Result:", multiply(num1, num2))
-    elif choice == '4':
-        print("Result:", divide(num1, num2))
-
+# --- Main loop for multiple prompts ---
 if __name__ == "__main__":
-    calculator()
+    print("Welcome! Type 'exit' to quit.")
+    while True:
+        user_input = input("You: ")
+        if user_input.lower() in ("exit", "quit"):
+            print("Goodbye!")
+            break
+        state = GraphState(user_input=user_input)
+        final_state_dict = graph.invoke(state)   # returns dict
+        final_state = GraphState(**final_state_dict)
+        print("Assistant:", final_state.final_output)
