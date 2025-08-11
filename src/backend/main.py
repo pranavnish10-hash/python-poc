@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from langgraph.graph import StateGraph, START, END
 from langchain.chains import LLMChain
+import logging
 from langchain.memory import ConversationBufferMemory
 from langchain_core.prompts import (
     HumanMessagePromptTemplate,
@@ -39,6 +40,7 @@ class GraphState:
 
 # --- Node 1: LLM response ---
 def node1(state: GraphState):
+    logging.info(f"User input: {state.user_input}")
     output = conversation_chain.invoke({"query": state.user_input})
     answer = output["text"].lstrip()
     if answer.lower().startswith("ai:"):
@@ -48,6 +50,7 @@ def node1(state: GraphState):
 
 # --- Node 2: Post-process output ---
 def node2(state: GraphState):
+    logging.info(f"LLM output: {state.llm_output}") 
     # For now, just copy the LLM output
     state.final_output = state.llm_output
     return state
